@@ -21,7 +21,16 @@ public partial record Room {
 		_routerSocket.ReceiveReady += RouterSocketOnReceiveReady;
 		_poller.Add(_routerSocket);
 
-		var args = await ComposeArgs();
+		List<string> args;
+		try {
+			args = await ComposeArgs();
+		} catch (Exception e) {
+			Log.Error("获取EasyTier节点失败", e);
+			Shutdown();
+			OnReady?.Invoke(false);
+			return;
+		}
+
 		args.AddRange([
 			"--hostname", NetworkName,
 			"--ipv4", "10.144.144.1",

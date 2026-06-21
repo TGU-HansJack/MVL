@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Flurl;
 using Flurl.Http;
 using Godot;
+using MVL.Utils.Config;
 
 namespace MVL.Utils.Multiplayer;
 
@@ -46,7 +47,12 @@ public class EasyTier : IDisposable {
 		Process?.Dispose();
 		Process = new();
 		Process.StartInfo = processStartInfo;
-		Process.Start();
+		if (!Process.Start()) {
+			Log.Error("启动EasyTier Core失败");
+			OnReady?.Invoke(false);
+			return;
+		}
+
 		Process.BeginOutputReadLine();
 		Process.BeginErrorReadLine();
 
@@ -55,14 +61,12 @@ public class EasyTier : IDisposable {
 			while (true) {
 				try {
 					var players = await GetPlayers();
-					if (players.Count <= 1) {
-						continue;
+					if (TryGetLocalPlayer(players, out var localPlayer)) {
+						LocalPlayer = localPlayer;
+						Log.Info("已连接EasyTier服务器");
+						OnReady?.Invoke(true);
+						return;
 					}
-
-					LocalPlayer = await GetLocalPlayer();
-					Log.Info("已连接EasyTier服务器");
-					OnReady?.Invoke(true);
-					return;
 				} catch {
 					// ignored
 				}
@@ -80,6 +84,20 @@ public class EasyTier : IDisposable {
 		});
 	}
 
+	static private bool TryGetLocalPlayer(List<EasyTierPlayerInfo> players, out EasyTierPlayerInfo localPlayer) {
+		foreach (var player in players) {
+			if (!player.Cost.Equals("Local", StringComparison.OrdinalIgnoreCase)) {
+				continue;
+			}
+
+			localPlayer = player;
+			return true;
+		}
+
+		localPlayer = default;
+		return false;
+	}
+
 	public async Task<List<EasyTierPlayerInfo>> GetPlayers() {
 		var json = await RunCli(["-p", $"127.0.0.1:{RpcPort}", "-o", "json", "peer"], false);
 		var players = JsonSerializer.Deserialize(json, SourceGenerationContext.Default.ListEasyTierPlayerInfo);
@@ -88,10 +106,8 @@ public class EasyTier : IDisposable {
 
 	public async Task<EasyTierPlayerInfo> GetLocalPlayer() {
 		var players = await GetPlayers();
-		foreach (var easyTierPlayerInfo in players) {
-			if (easyTierPlayerInfo.Cost == "Local") {
-				return easyTierPlayerInfo;
-			}
+		if (TryGetLocalPlayer(players, out var localPlayer)) {
+			return localPlayer;
 		}
 
 		return default;
@@ -112,9 +128,16 @@ public class EasyTier : IDisposable {
 	}
 
 	public void Kill() {
-		Process?.Kill(true);
-		Process?.Dispose();
-		Process = null;
+		try {
+			if (Process is { HasExited: false }) {
+				Process.Kill(true);
+			}
+		} catch (Exception e) {
+			Log.Debug($"关闭EasyTier失败: {e.Message}");
+		} finally {
+			Process?.Dispose();
+			Process = null;
+		}
 	}
 
 	public void Dispose() {
@@ -165,16 +188,26 @@ public class EasyTier : IDisposable {
 		"https://etnode.zkitefly.eu.org/node2"
 	];
 
+	static private string GetNodesApiUrl() => BaseConfigV0.DefaultEasyTierCommunityNodesApiUrl;
+
 	public static async Task<List<string>> FetchPublicNodes(int limit = 5) {
 		var activeServers = new List<string>(200);
 		try {
-			var response = await "https://uptime.easytier.cn/api/nodes"
+			var sessionToken = MVL.UI.Main.BaseConfig.EasyTierCommunitySessionToken?.Trim();
+			if (string.IsNullOrWhiteSpace(sessionToken)) {
+				Log.Warn("未登录社区账号，跳过EasyTier节点获取");
+				return [];
+			}
+
+			var request = GetNodesApiUrl()
 				.SetQueryParams(new {
 					is_active = "true",
 					page = "1",
 					per_page = "200"
 				})
-				.GetStreamAsync();
+				.WithOAuthBearerToken(sessionToken);
+
+			var response = await request.GetStreamAsync();
 
 			var apiResponse = await JsonSerializer.DeserializeAsync(response, SourceGenerationContext.Default.ApiResponse);
 			foreach (var item in apiResponse.Data.Items) {
@@ -188,7 +221,7 @@ public class EasyTier : IDisposable {
 
 		var count = activeServers.Count;
 		var n = Math.Min(limit, count);
-		var finalServers = new List<string>(n + FallbackServers.Length);
+		var finalServers = new List<string>(n);
 		for (var i = 0; i < n; i++) {
 			var j = Random.Shared.Next(i, count);
 			finalServers.Add(activeServers[j]);
@@ -196,7 +229,6 @@ public class EasyTier : IDisposable {
 			(activeServers[i], activeServers[j]) = (activeServers[j], activeServers[i]);
 		}
 
-		finalServers.AddRange(FallbackServers);
 		return finalServers;
 	}
 

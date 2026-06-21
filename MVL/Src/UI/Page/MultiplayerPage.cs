@@ -34,7 +34,11 @@ public partial class MultiplayerPage : MenuPage {
 		Tools.SceneTree.Root.TreeExiting += OnExit;
 	}
 
-	private void JoinButtonOnPressed() {
+	private async void JoinButtonOnPressed() {
+		if (!await EnsureEasyTierCommunityReady()) {
+			return;
+		}
+
 		_room = Room.Parse(_codeLineEdit!.Text);
 		if (_room != null) {
 			_codeLineEdit.Editable = false;
@@ -50,7 +54,11 @@ public partial class MultiplayerPage : MenuPage {
 		}
 	}
 
-	private void HostButtonOnPressed() {
+	private async void HostButtonOnPressed() {
+		if (!await EnsureEasyTierCommunityReady()) {
+			return;
+		}
+
 		_room = Room.Create(42420, "MVL");
 		_codeLineEdit!.Editable = false;
 		_room.StartHost();
@@ -82,5 +90,24 @@ public partial class MultiplayerPage : MenuPage {
 		}
 
 		return null;
+	}
+
+	private async Task<bool> EnsureEasyTierCommunityReady() {
+		if (string.IsNullOrWhiteSpace(MVL.UI.Main.BaseConfig.EasyTierCommunitySessionToken)) {
+			_tooltip!.Text = "请先在设置页登录社区账号";
+			return false;
+		}
+
+		_tooltip!.Text = "正在检查社区节点...";
+		var nodes = await EasyTier.FetchPublicNodes(1);
+		if (nodes.Count > 0) {
+			return true;
+		}
+
+		MVL.UI.Main.BaseConfig.EasyTierCommunitySessionToken = "";
+		MVL.UI.Main.BaseConfig.EasyTierCommunityUsername = "";
+		MVL.UI.Main.BaseConfig.Save();
+		_tooltip.Text = "社区登录已失效或节点不可用，请在设置页重新登录";
+		return false;
 	}
 }

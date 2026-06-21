@@ -35,6 +35,9 @@ namespace MVL.Utils;
 [JsonSerializable(typeof(ApiStatusModsList))]
 [JsonSerializable(typeof(ApiRelease))]
 [JsonSerializable(typeof(ApiResponse))]
+[JsonSerializable(typeof(LauncherLoginStartResponse))]
+[JsonSerializable(typeof(LauncherLoginPollResponse))]
+[JsonSerializable(typeof(LauncherLoginPollRequest))]
 [JsonSerializable(typeof(List<EasyTierPlayerInfo>))]
 [JsonSerializable(typeof(GhProxyEnum))]
 [JsonSourceGenerationOptions(JsonSerializerDefaults.Web,

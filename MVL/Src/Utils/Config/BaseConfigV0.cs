@@ -8,6 +8,8 @@ using Environment = System.Environment;
 namespace MVL.Utils.Config;
 
 public class BaseConfigV0 {
+	public const string DefaultEasyTierCommunityNodesApiUrl = "https://et.vintagestory.top/api/nodes";
+
 	[JsonPropertyOrder(0)]
 	public string CurrentModpack { get; set; } = "";
 
@@ -25,6 +27,15 @@ public class BaseConfigV0 {
 
 	[JsonPropertyOrder(2)]
 	public string ProxyAddress { get; set; } = "";
+
+	[JsonPropertyOrder(2)]
+	public string EasyTierNodesApiUrl { get; set; } = DefaultEasyTierCommunityNodesApiUrl;
+
+	[JsonPropertyOrder(2)]
+	public string EasyTierCommunitySessionToken { get; set; } = "";
+
+	[JsonPropertyOrder(2)]
+	public string EasyTierCommunityUsername { get; set; } = "";
 
 	[JsonPropertyOrder(2)]
 	public int DownloadThreads { get; set; } = Environment.ProcessorCount;

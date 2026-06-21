@@ -85,6 +85,10 @@ public partial record Room : IDisposable {
 		]);
 
 		var nodes = await EasyTier.FetchPublicNodes(10);
+		if (nodes.Count == 0) {
+			throw new InvalidOperationException("未获取到可用EasyTier社区节点");
+		}
+
 		foreach (var node in nodes) {
 			args.AddRange(["-p", node]);
 		}

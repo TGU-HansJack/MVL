@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
+using System.Threading.Tasks;
 using Godot;
 using MVL.UI;
 using NetMQ;
@@ -19,7 +20,15 @@ public partial record Room {
 	private volatile bool _isHostAlive = true;
 
 	public async void StartGuest() {
-		var args = await ComposeArgs();
+		List<string> args;
+		try {
+			args = await ComposeArgs();
+		} catch (Exception e) {
+			Log.Error("获取EasyTier节点失败", e);
+			OnReady?.Invoke(false);
+			return;
+		}
+
 		args.AddRange([
 			"-d",
 			"--tcp-whitelist=0",
@@ -38,7 +47,7 @@ public partial record Room {
 		}
 
 		_isHostAlive = true;
-		for (var i = 0; i < 3; i++) {
+		for (var i = 0; i < 10; i++) {
 			var players = await _easyTier!.GetPlayers();
 			foreach (var playerInfo in players) {
 				if (!playerInfo.HostName.Equals(NetworkName, StringComparison.OrdinalIgnoreCase)) {
@@ -91,6 +100,8 @@ public partial record Room {
 				OnReady?.Invoke(false);
 				return;
 			}
+
+			await Task.Delay(1000);
 		}
 
 		Log.Error("未找到主机");

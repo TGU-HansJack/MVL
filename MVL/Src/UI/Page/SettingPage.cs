@@ -2,14 +2,20 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
+using System.Net.Mime;
+using System.Text;
+using System.Threading.Tasks;
 using System.Text.Json;
 using Flurl.Http;
 using Godot;
 using MVL.UI.Window;
 using MVL.Utils;
+using MVL.Utils.Config;
 using MVL.Utils.Extensions;
 using MVL.Utils.GitHub;
 using MVL.Utils.Help;
+using MVL.Utils.Multiplayer;
 
 namespace MVL.UI.Page;
 
@@ -34,6 +40,9 @@ public partial class SettingPage : MenuPage {
 
 	[Export]
 	private LineEdit? _proxyAddressLineEdit;
+
+	[Export]
+	private Button? _easyTierCommunityButton;
 
 	[Export]
 	private CheckButton? _useThirdPartyGameDownloadCheckButton;
@@ -100,6 +109,8 @@ public partial class SettingPage : MenuPage {
 	private readonly List<Translation> _localTranslations = [];
 
 	private ApiRelease? _lastVersion;
+	private bool _easyTierCommunityBusy;
+	private bool _easyTierCommunityMousePressed;
 
 	public override void _Ready() {
 		base._Ready();
@@ -108,6 +119,9 @@ public partial class SettingPage : MenuPage {
 		_renderingDriverOptionButton.NotNull();
 		_menuExpandCheckButton.NotNull();
 		_proxyAddressLineEdit.NotNull();
+		_easyTierCommunityButton ??= GetNodeOrNull<Button>(
+			"MarginContainer/ScrollContainer/VBoxContainer/PanelContainer2/VBoxContainer/MarginContainer/VBoxContainer/HBoxContainer5/Button");
+		_easyTierCommunityButton.NotNull();
 		_useThirdPartyGameDownloadCheckButton.NotNull();
 		_thirdPartyGameLinkLineEdit.NotNull();
 		_thirdPartyGameLinkCheckButton.NotNull();
@@ -125,6 +139,9 @@ public partial class SettingPage : MenuPage {
 		_displayScaleSpinbox.Value = UI.Main.BaseConfig.DisplayScale * 100;
 		_menuExpandCheckButton.ButtonPressed = UI.Main.BaseConfig.MenuExpand;
 		_proxyAddressLineEdit.Text = UI.Main.BaseConfig.ProxyAddress;
+		UI.Main.BaseConfig.EasyTierNodesApiUrl = BaseConfigV0.DefaultEasyTierCommunityNodesApiUrl;
+		Log.Info("设置页社区登录按钮已初始化");
+		UpdateEasyTierCommunityButtons();
 		_useThirdPartyGameDownloadCheckButton.ButtonPressed = UI.Main.BaseConfig.UseThirdPartyGameDownload;
 		_thirdPartyGameLinkLineEdit.Text = UI.Main.BaseConfig.ThirdPartyGameLink;
 		_thirdPartyGameLinkLineEdit.Editable = _useThirdPartyGameDownloadCheckButton.ButtonPressed;
@@ -139,6 +156,12 @@ public partial class SettingPage : MenuPage {
 		_renderingDriverOptionButton.ItemSelected += RenderingDriverOptionButtonOnItemSelected;
 		_menuExpandCheckButton.Toggled += MenuExpandCheckButtonOnToggled;
 		_proxyAddressLineEdit.EditingToggled += ProxyAddressLineEditOnEditingToggled;
+		_proxyAddressLineEdit.TextSubmitted += _ => SaveProxyAddress();
+		_proxyAddressLineEdit.FocusExited += SaveProxyAddress;
+		_easyTierCommunityButton.Pressed -= EasyTierCommunityButtonOnPressed;
+		_easyTierCommunityButton.Pressed += EasyTierCommunityButtonOnPressed;
+		_easyTierCommunityButton.GuiInput += EasyTierCommunityButtonOnGuiInput;
+		_easyTierCommunityButton.MouseFilter = MouseFilterEnum.Stop;
 		_useThirdPartyGameDownloadCheckButton.Toggled += UseThirdPartyGameDownloadCheckButtonOnToggled;
 		_thirdPartyGameLinkLineEdit.EditingToggled += ThirdPartyGameLinkLineEditOnEditingToggled;
 		_thirdPartyGameLinkLineEdit.TextChanged += ThirdPartyGameLinkLineEditOnTextChanged;
@@ -171,7 +194,43 @@ public partial class SettingPage : MenuPage {
 		_configFile.Save(Paths.OverrideConfigPath);
 	}
 
+	public override void _Process(double delta) {
+		if (!Visible || _easyTierCommunityButton is null) {
+			_easyTierCommunityMousePressed = false;
+			return;
+		}
+
+		var pressed = Input.IsMouseButtonPressed(MouseButton.Left);
+		if (pressed && !_easyTierCommunityMousePressed &&
+			_easyTierCommunityButton.GetGlobalRect().HasPoint(GetGlobalMousePosition())) {
+			TriggerEasyTierCommunityButton("轮询");
+		}
+
+		_easyTierCommunityMousePressed = pressed;
+	}
+
+	public override void _Input(InputEvent @event) {
+		if (!Visible ||
+			@event is not InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: true } mouseEvent ||
+			_easyTierCommunityButton is null ||
+			!_easyTierCommunityButton.GetGlobalRect().HasPoint(mouseEvent.Position)) {
+			return;
+		}
+
+		GetViewport().SetInputAsHandled();
+		TriggerEasyTierCommunityButton("Input兜底");
+	}
+
+	private void EasyTierCommunityButtonOnGuiInput(InputEvent @event) {
+		if (@event is not InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: true }) {
+			return;
+		}
+
+		TriggerEasyTierCommunityButton("GuiInput");
+	}
+
 	public override void _ExitTree() {
+		SaveProxyAddress();
 		TranslationServer.RemoveTranslation(_zhTranslation);
 		_zhTranslation?.Dispose();
 		_zhTranslation = null;
@@ -277,9 +336,153 @@ public partial class SettingPage : MenuPage {
 			return;
 		}
 
-		UI.Main.BaseConfig.ProxyAddress = _proxyAddressLineEdit!.Text;
+		SaveProxyAddress();
+	}
+
+	private void SaveProxyAddress() {
+		var proxyAddress = _proxyAddressLineEdit!.Text.Trim();
+		if (UI.Main.BaseConfig.ProxyAddress == proxyAddress) {
+			return;
+		}
+
+		UI.Main.BaseConfig.ProxyAddress = _proxyAddressLineEdit.Text = proxyAddress;
 		FlurlHttp.Clients.Clear();
 		UI.Main.BaseConfig.Save();
+	}
+
+	public void EasyTierCommunityButtonOnPressed() {
+		TriggerEasyTierCommunityButton("Pressed");
+	}
+
+	private void TriggerEasyTierCommunityButton(string source) {
+		Log.Info($"点击社区账号按钮: {source}");
+		if (_easyTierCommunityBusy) {
+			return;
+		}
+
+		if (IsEasyTierCommunityLoggedIn()) {
+			EasyTierCommunityLogout();
+			return;
+		}
+
+		EasyTierCommunityLogin();
+	}
+
+	private async void EasyTierCommunityLogin() {
+		_easyTierCommunityBusy = true;
+		_easyTierCommunityButton!.Disabled = true;
+		_easyTierCommunityButton.Text = "登录中...";
+
+		try {
+			UI.Main.BaseConfig.EasyTierNodesApiUrl = BaseConfigV0.DefaultEasyTierCommunityNodesApiUrl;
+
+			await using var startStream = await GetEasyTierCommunityApiUrl("/api/launcher/login/start")
+				.WithTimeout(TimeSpan.FromSeconds(15))
+				.PostAsync()
+				.ReceiveStream();
+			var startResponse = await JsonSerializer.DeserializeAsync(
+				startStream,
+				SourceGenerationContext.Default.LauncherLoginStartResponse);
+			if (string.IsNullOrWhiteSpace(startResponse.LoginUrl)) {
+				ShowThirdPartyGameLinkCheckResult("社区登录失败，请重试");
+				return;
+			}
+
+			var error = OS.ShellOpen(startResponse.LoginUrl);
+			if (error != Error.Ok) {
+				ShowThirdPartyGameLinkCheckResult("无法打开浏览器，请检查系统默认浏览器设置");
+				return;
+			}
+
+			ShowThirdPartyGameLinkCheckResult("已打开浏览器，请完成社区登录后回到启动器");
+
+			for (var i = 0; i < 150; i++) {
+				await Task.Delay(2000);
+				using var content = new StringContent(
+					JsonSerializer.Serialize(new LauncherLoginPollRequest {
+						Id = startResponse.Id,
+						Secret = startResponse.Secret
+					}, SourceGenerationContext.Default.LauncherLoginPollRequest),
+					Encoding.UTF8,
+					MediaTypeNames.Application.Json);
+				await using var pollStream = await GetEasyTierCommunityApiUrl("/api/launcher/login/poll")
+					.WithTimeout(TimeSpan.FromSeconds(15))
+					.PostAsync(content)
+					.ReceiveStream();
+				var pollResponse = await JsonSerializer.DeserializeAsync(
+					pollStream,
+					SourceGenerationContext.Default.LauncherLoginPollResponse);
+
+				switch (pollResponse.Status) {
+					case "pending":
+						continue;
+					case "complete":
+						if (string.IsNullOrWhiteSpace(pollResponse.SessionToken)) {
+							ShowThirdPartyGameLinkCheckResult("社区登录失败，请重试");
+							UpdateEasyTierCommunityButtons();
+							return;
+						}
+
+						UI.Main.BaseConfig.EasyTierCommunitySessionToken = pollResponse.SessionToken;
+						UI.Main.BaseConfig.EasyTierCommunityUsername = string.IsNullOrWhiteSpace(pollResponse.Username)
+							? "社区账号"
+							: pollResponse.Username;
+						UI.Main.BaseConfig.Save();
+						UpdateEasyTierCommunityButtons();
+						return;
+					default:
+						ShowThirdPartyGameLinkCheckResult("社区登录失败，请重试");
+						UpdateEasyTierCommunityButtons();
+						return;
+				}
+			}
+
+			ShowThirdPartyGameLinkCheckResult("社区登录超时，请重试");
+		} catch (Exception e) {
+			Log.Error("社区登录失败", e);
+			ShowThirdPartyGameLinkCheckResult("社区登录失败，请检查网络连接");
+		} finally {
+			_easyTierCommunityBusy = false;
+			UpdateEasyTierCommunityButtons();
+		}
+	}
+
+	private async void EasyTierCommunityLogout() {
+		_easyTierCommunityBusy = true;
+		_easyTierCommunityButton!.Disabled = true;
+
+		try {
+			var token = UI.Main.BaseConfig.EasyTierCommunitySessionToken;
+			if (!string.IsNullOrWhiteSpace(token)) {
+				await GetEasyTierCommunityApiUrl("/api/launcher/logout")
+					.WithOAuthBearerToken(token)
+					.PostAsync();
+			}
+		} catch (Exception e) {
+			Log.Warn("社区注销请求失败", e);
+		}
+
+		UI.Main.BaseConfig.EasyTierCommunitySessionToken = "";
+		UI.Main.BaseConfig.EasyTierCommunityUsername = "";
+		UI.Main.BaseConfig.Save();
+		_easyTierCommunityBusy = false;
+		UpdateEasyTierCommunityButtons();
+	}
+
+	private void UpdateEasyTierCommunityButtons() {
+		var loggedIn = IsEasyTierCommunityLoggedIn();
+
+		_easyTierCommunityButton!.Disabled = false;
+		_easyTierCommunityButton.Text = loggedIn ? "注销" : "社区登录（点击）";
+		_easyTierCommunityButton.Modulate = loggedIn ? Colors.Red : Colors.White;
+	}
+
+	static private string GetEasyTierCommunityApiUrl(string path) {
+		return BaseConfigV0.DefaultEasyTierCommunityNodesApiUrl.Replace("/api/nodes", path);
+	}
+
+	static private bool IsEasyTierCommunityLoggedIn() {
+		return !string.IsNullOrWhiteSpace(UI.Main.BaseConfig.EasyTierCommunitySessionToken);
 	}
 
 	private void UseThirdPartyGameDownloadCheckButtonOnToggled(bool toggledOn) {
