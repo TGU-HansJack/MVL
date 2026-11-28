@@ -21,12 +21,16 @@ public partial class ApiModReleasesWindow : BaseWindow {
 	private Control? _loadingContainer;
 
 	private CancellationTokenSource _cancellationTokenSource = new();
+	private bool _downloadBatchInProgress;
 
 	public ModInfoItem? ModInfoItem { get; set; }
 
 	public IEnumerable<ModInfoItem>? AutoUpdateModInfoItems { get; set; }
 
 	public IEnumerable<(ApiModInfo, ApiModRelease, ModpackConfig)>? ModDependencies { get; set; }
+	public string? WindowTitle { get; set; }
+	public string? ConfirmButtonText { get; set; }
+	public string? StatusMessage { get; set; }
 
 	public (ModInfo? modInfo, ApiModInfo apiModInfo, ModpackConfig modpackConfig)? DownloadModInfo { get; set; }
 
@@ -35,12 +39,20 @@ public partial class ApiModReleasesWindow : BaseWindow {
 		_apiModReleaseItemScene.NotNull();
 		_apiModReleaseItemsContainer.NotNull();
 		_loadingContainer.NotNull();
+		if (WindowTitle is { } title) TitleLabel!.Text = title;
+		if (ConfirmButtonText is { } confirmText) OkButton!.Text = confirmText;
+		if (StatusMessage is { Length: > 0 } statusMessage) {
+			var statusLabel = GetNode<RichTextLabel>("%StatusLabel");
+			statusLabel.Text = statusMessage.Replace("[", "[lb]");
+			statusLabel.Show();
+		}
 
 		CancelButton!.Pressed += CancelButtonOnPressed;
 		CancelButton.Pressed += _cancellationTokenSource.Cancel;
 		OkButton!.Pressed += OkButtonOnPressed;
 		_loadingContainer.VisibilityChanged += LoadingContainerOnVisibilityChanged;
 
+		OkButton!.Disabled = true;
 		UpdateApiModInfo();
 	}
 
@@ -54,22 +66,26 @@ public partial class ApiModReleasesWindow : BaseWindow {
 	}
 
 	private async void OkButtonOnPressed() {
+		if (_downloadBatchInProgress) return;
+		_downloadBatchInProgress = true;
 		OkButton!.Disabled = true;
-		var tasks = new List<Task>();
-		foreach (var child in _apiModReleaseItemsContainer!.GetChildren()) {
-			if (!IsInstanceValid(this)) {
-				return;
-			}
-
-			if (child is not ApiModReleaseItem { IsChecked: true } apiModReleaseItem) {
-				continue;
-			}
-
-			apiModReleaseItem.Disable();
-			tasks.Add(apiModReleaseItem.Download());
+		var rows = _apiModReleaseItemsContainer!.GetChildren().OfType<ApiModReleaseItem>().ToArray();
+		var selectedRows = rows.Where(row => row.IsChecked).ToArray();
+		if (selectedRows.Length == 0) {
+			_downloadBatchInProgress = false;
+			OkButton.Disabled = false;
+			return;
+		}
+		foreach (var row in rows) {
+			row.Disable();
 		}
 
-		await Task.WhenAll(tasks);
+		try {
+			await Task.WhenAll(selectedRows.Select(row => row.Download()));
+		} finally {
+			_downloadBatchInProgress = false;
+		}
+
 		if (!IsInstanceValid(this)) {
 			return;
 		}
@@ -79,7 +95,7 @@ public partial class ApiModReleasesWindow : BaseWindow {
 	}
 
 	public async void UpdateApiModInfo() {
-		if (!IsInstanceValid(this)) {
+		if (!IsInstanceValid(this) || _downloadBatchInProgress) {
 			return;
 		}
 
@@ -181,6 +197,7 @@ public partial class ApiModReleasesWindow : BaseWindow {
 
 		if (IsInstanceValid(this)) {
 			_loadingContainer.Hide();
+			OkButton!.Disabled = false;
 		}
 	}
 

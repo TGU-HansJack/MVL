@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
@@ -47,6 +48,7 @@ public partial class ModpackModManagementWindow : BaseWindow {
 	private Control? _loadingContainer;
 
 	public ModpackConfig? ModpackConfig { get; set; }
+	public bool ShareMode { get; set; }
 
 	private readonly List<ModInfoItem> _autoModInfoItem = [];
 	private List<ModDependency> _modDependencies = [];
@@ -74,6 +76,10 @@ public partial class ModpackModManagementWindow : BaseWindow {
 		_downloadButton.Pressed += DownloadButtonOnPressed;
 		_loadingContainer.VisibilityChanged += LoadingContainerOnVisibilityChanged;
 		ModpackConfig.ModsUpdated += ShowList;
+		if (ShareMode) {
+			TitleLabel!.Text = "分享整合包";
+			OkButton!.Text = "分享";
+		}
 	}
 
 	public override void _ExitTree() {
@@ -96,6 +102,33 @@ public partial class ModpackModManagementWindow : BaseWindow {
 	}
 
 	private async void OkButtonOnPressed() {
+		if (ShareMode) {
+			var selectedMods = _modInfoItemsContainer!.GetChildren().OfType<ModInfoItem>()
+				.Where(row => row.SelectedForShare).Select(row => row.ShareEntry!).ToArray();
+			var dialog = new FileDialog {
+				Access = FileDialog.AccessEnum.Filesystem,
+				FileMode = FileDialog.FileModeEnum.SaveFile,
+				CurrentFile = "modpack.json",
+				Filters = ["*.json"],
+				UseNativeDialog = true
+			};
+			dialog.Canceled += dialog.QueueFree;
+			dialog.FileSelected += path => {
+				dialog.QueueFree();
+				try {
+					if (!path.EndsWith(".json", StringComparison.OrdinalIgnoreCase)) path += ".json";
+					System.IO.File.WriteAllBytes(path, ModpackConfig!.WriteJson(selectedMods));
+				} catch (Exception e) {
+					Log.Error("导出 modpack.json 失败", e);
+					var error = Main.Instance!.OpenConfirmationWindow($"导出 modpack.json 失败\n{e.Message}");
+					error.Hidden += error.QueueFree;
+					_ = error.Show();
+				}
+			};
+			AddChild(dialog);
+			dialog.Show();
+			return;
+		}
 		await Hide();
 		var browsePage = Main.Instance!.GetNode<BrowsePage>("%BrowsePage");
 		browsePage.ModpackConfig = ModpackConfig;
@@ -180,21 +213,26 @@ public partial class ModpackModManagementWindow : BaseWindow {
 
 		_scrollContainer!.Call(StringNames.Scroll, true, 0, 0, 0);
 
-		if (modpackConfig.Mods.IsEmpty) {
+		if (modpackConfig.Mods.IsEmpty && (!ShareMode || modpackConfig.ModList.Length == 0)) {
 			_loadingContainer.Hide();
 			return;
 		}
 
-		var list = modpackConfig.Mods.Values.OrderBy(m => m.ModId);
+		var list = ShareMode
+			? modpackConfig.ModList.OrderBy(mod => mod.Name ?? mod.ModId, StringComparer.CurrentCultureIgnoreCase)
+				.Select(entry => (entry, modpackConfig.Mods.GetValueOrDefault(entry.ModId)))
+			: modpackConfig.Mods.Values.OrderBy(mod => mod.ModId).Select(mod =>
+				(new ModpackMod(mod.ModId, mod.Version, mod.Name), (ModInfo?)mod));
 
-		foreach (var modpackConfigMod in list) {
+		foreach (var (entry, installedMod) in list) {
 			if (!IsInstanceValid(this)) {
 				return;
 			}
 
 			var modInfoItem = _modInfoItemScene!.Instantiate<ModInfoItem>();
 			modInfoItem.Window = this;
-			modInfoItem.Mod = modpackConfigMod;
+			modInfoItem.Mod = installedMod?.Version == entry.Version ? installedMod : null;
+			modInfoItem.ShareEntry = ShareMode ? entry : null;
 			modInfoItem.Modulate = Colors.Transparent;
 			modInfoItem.CancellationTokenSource = _cancellationTokenSource;
 			modInfoItem.HasAutoUpdate += ModInfoItemOnHasAutoUpdate;
@@ -321,13 +359,13 @@ public partial class ModpackModManagementWindow : BaseWindow {
 		if (string.IsNullOrEmpty(searchString)) {
 			return nodesToSort.OrderBy(item => {
 				item.Show();
-				return item.Mod!.ModId;
+				return item.ShareEntry?.ModId ?? item.Mod!.ModId;
 			});
 		}
 
 		var sortedNodes = nodesToSort
 			.OrderByDescending(item => {
-				var ratio = Fuzzy.PartialRatio($"{item.Mod?.Name} {item.ApiModInfo?.Name} {item.Mod?.ModId}", searchString);
+				var ratio = Fuzzy.PartialRatio($"{item.Mod?.Name ?? item.ShareEntry?.Name} {item.ApiModInfo?.Name} {item.Mod?.ModId ?? item.ShareEntry?.ModId}", searchString);
 				if (ratio <= 0) {
 					item.Hide();
 				} else {

@@ -20,6 +20,7 @@ namespace MVL.Utils;
 [JsonSerializable(typeof(BaseConfig))]
 [JsonSerializable(typeof(ModpackConfigV0))]
 [JsonSerializable(typeof(ModpackConfig))]
+[JsonSerializable(typeof(ModpackManifest))]
 [JsonSerializable(typeof(GameRelease))]
 [JsonSerializable(typeof(GameDownloadInfo))]
 [JsonSerializable(typeof(GameDownloadUrl))]

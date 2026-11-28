@@ -1,9 +1,8 @@
 [gd_scene format=3 uid="uid://bf8v1y2ikmx0h"]
 
 [ext_resource type="PackedScene" uid="uid://bu4hwijkbc8sm" path="res://Src/UI/Window/base_window.tscn" id="1_s26qc"]
-[ext_resource type="Script" uid="uid://bgqglerkcylxx" path="res://addons/SmoothScroll/smooth_scroll_container.gd" id="2_d71qf"]
+[ext_resource type="PackedScene" path="res://Src/UI/Item/mod_info_list.tscn" id="2_list"]
 [ext_resource type="Script" uid="uid://cpactxkkvxq3u" path="res://Src/UI/Window/ModpackModManagementWindow.cs" id="2_mbxli"]
-[ext_resource type="Script" uid="uid://b7h0k2h2qwlqv" path="res://addons/SmoothScroll/scroll_damper/expo_scroll_damper.gd" id="3_mbxli"]
 [ext_resource type="PackedScene" uid="uid://8k1twti5t7jp" path="res://Src/UI/Window/api_mod_releases_window.tscn" id="3_o3mfg"]
 [ext_resource type="Script" uid="uid://bk3tot6c35bwu" path="res://Src/Utils/IconTexture2D.cs" id="4_vsdyd"]
 [ext_resource type="PackedScene" uid="uid://ud2mx48036m8" path="res://Src/UI/Item/mod_info_item.tscn" id="5_mbxli"]
@@ -37,12 +36,6 @@ resource_name = ""
 script = ExtResource("4_vsdyd")
 IconName = "database-arrow-up-outline"
 metadata/_custom_type_script = "uid://bk3tot6c35bwu"
-
-[sub_resource type="Resource" id="Resource_o3v2t"]
-script = ExtResource("3_mbxli")
-
-[sub_resource type="Resource" id="Resource_vsdyd"]
-script = ExtResource("3_mbxli")
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_o3v2t"]
 shader = ExtResource("6_0flki")
@@ -210,29 +203,8 @@ tooltip_text = "模组批量更新"
 disabled = true
 icon = SubResource("Texture2D_uhhmm")
 
-[node name="SmoothScrollContainer" type="ScrollContainer" parent="PanelContainer/VBoxContainer/MarginContainer/VBoxContainer" index="1" unique_id=1744053960]
-custom_minimum_size = Vector2(800, 350)
+[node name="SmoothScrollContainer" parent="PanelContainer/VBoxContainer/MarginContainer/VBoxContainer" index="1" unique_id=1744053960 instance=ExtResource("2_list")]
 layout_mode = 2
-horizontal_scroll_mode = 0
-script = ExtResource("2_d71qf")
-wheel_scroll_damper = SubResource("Resource_o3v2t")
-dragging_scroll_damper = SubResource("Resource_vsdyd")
-allow_horizontal_scroll = false
-metadata/_custom_type_script = "uid://bgqglerkcylxx"
-
-[node name="MarginContainer" type="MarginContainer" parent="PanelContainer/VBoxContainer/MarginContainer/VBoxContainer/SmoothScrollContainer" index="0" unique_id=1939856132]
-layout_mode = 2
-size_flags_horizontal = 3
-size_flags_vertical = 3
-theme_override_constants/margin_left = 4
-theme_override_constants/margin_top = 4
-theme_override_constants/margin_right = 4
-theme_override_constants/margin_bottom = 4
-
-[node name="VBoxContainer" type="VBoxContainer" parent="PanelContainer/VBoxContainer/MarginContainer/VBoxContainer/SmoothScrollContainer/MarginContainer" index="0" unique_id=2082473575]
-layout_mode = 2
-size_flags_horizontal = 3
-theme_override_constants/separation = 8
 
 [node name="Control" type="Control" parent="PanelContainer/VBoxContainer/MarginContainer" index="1" unique_id=780265247]
 visible = false

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Godot;
 using MVL.UI.Item;
 using MVL.Utils;
@@ -12,6 +13,8 @@ namespace MVL.UI.Window;
 public partial class ModpackSettingWindow : BaseWindow {
 	[Export]
 	private PackedScene? _modpackLocalizedItemScene;
+
+	[Export] private PackedScene? _shareModpackScene;
 
 	[Export]
 	private TextureRect? _modpackIconTextureRect;
@@ -92,6 +95,7 @@ public partial class ModpackSettingWindow : BaseWindow {
 		_gameAssemblyLineEdit.EditingToggled += GameAssemblyLineEditOnEditingToggled;
 		CancelButton!.Pressed += CancelButtonOnPressed;
 		_openModpackFolderButton.Pressed += OpenModpackFolderButtonOnPressed;
+		GetNode<Button>("%ShareButton").Pressed += ShareButtonOnPressed;
 		OkButton.Pressed += OkButtonOnPressed;
 
 		if (ModpackConfig.ModpackName.Localizations.Count > 0) {
@@ -160,6 +164,21 @@ public partial class ModpackSettingWindow : BaseWindow {
 	}
 
 	private void OpenModpackFolderButtonOnPressed() { OS.ShellOpen(ModpackConfig!.Path); }
+
+	private async void ShareButtonOnPressed() {
+		var window = _shareModpackScene!.Instantiate<ModpackModManagementWindow>();
+		window.ModpackConfig = ModpackConfig;
+		window.ShareMode = true;
+		window.Hidden += window.QueueFree;
+		Main.Instance!.AddChild(window);
+		await window.Show();
+		try {
+			await ModpackConfig!.UpdateModsAsync();
+		} catch (Exception e) {
+			Log.Error("同步整合包模组清单失败", e);
+			window.ShowList(ModpackConfig!);
+		}
+	}
 
 	private void ResetIconButtonOnPressed() {
 		_modpackIconTextureRect!.Texture = ModpackConfig.DefaultIcon;

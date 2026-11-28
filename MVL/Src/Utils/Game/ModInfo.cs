@@ -227,7 +227,6 @@ public record ModInfo : IComparable<ModInfo> {
 
 			var modInfo = new ModInfo {
 				Name = modInfoAttribute.ConstructorArguments[0].Value?.ToString() ?? string.Empty,
-				ModId = string.Empty,
 				ModPath = assemblyPath,
 				ModFileType = ModFileType.Assembly
 			};

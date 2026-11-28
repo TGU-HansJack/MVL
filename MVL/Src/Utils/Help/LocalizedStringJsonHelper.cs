@@ -44,13 +44,17 @@ public static class LocalizedStringJsonHelper {
 	}
 
 	public static void SaveWithOrderedLocalizations<T>(T obj, string filePath, JsonTypeInfo<T> typeInfo) where T : notnull {
-		var propsMap = MetadataCache<T>.GetLocalizedProps(typeInfo);
 		var writerOptions = CreateWriterOptions(typeInfo.Options);
+		var buffer = new ArrayBufferWriter<byte>();
+		using (var writer = new Utf8JsonWriter(buffer, writerOptions)) {
+			WriteWithOrderedLocalizations(obj, writer, typeInfo);
+		}
+		File.WriteAllBytes(filePath, buffer.WrittenSpan);
+	}
 
+	public static void WriteWithOrderedLocalizations<T>(T obj, Utf8JsonWriter writer, JsonTypeInfo<T> typeInfo) where T : notnull {
+		var propsMap = MetadataCache<T>.GetLocalizedProps(typeInfo);
 		using var doc = JsonSerializer.SerializeToDocument(obj, typeInfo);
-		using var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write);
-		using var writer = new Utf8JsonWriter(fs, writerOptions);
-
 		writer.WriteStartObject();
 
 		foreach (var prop in doc.RootElement.EnumerateObject()) {

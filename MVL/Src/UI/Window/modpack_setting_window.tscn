@@ -8,6 +8,7 @@
 [ext_resource type="Script" uid="uid://bk3tot6c35bwu" path="res://Src/Utils/IconTexture2D.cs" id="4_ys3gp"]
 [ext_resource type="Script" uid="uid://b7h0k2h2qwlqv" path="res://addons/SmoothScroll/scroll_damper/expo_scroll_damper.gd" id="5_tuivn"]
 [ext_resource type="PackedScene" uid="uid://bxcly4rmyqyy8" path="res://Src/UI/Item/modpack_localized_item.tscn" id="6_yrsig"]
+[ext_resource type="PackedScene" uid="uid://bf8v1y2ikmx0h" path="res://Src/UI/Window/modpack_mod_management_window.tscn" id="7_share"]
 
 [sub_resource type="Resource" id="Resource_uq8gy"]
 script = ExtResource("5_tuivn")
@@ -42,6 +43,7 @@ metadata/_custom_type_script = "uid://bk3tot6c35bwu"
 [node name="ModpackSettingWindow" unique_id=1805424548 node_paths=PackedStringArray("_modpackIconTextureRect", "_modifyIconButton", "_resetIconButton", "_modpackNamEdit", "_addModpackNameLocalizedItem", "_modpackNameLocalizedContainer", "_modpackSummaryEdit", "_addModpackSummaryLocalizedItem", "_modpackSummaryLocalizedContainer", "_commandLineEdit", "_gameAssemblyLineEdit", "_openModpackFolderButton") instance=ExtResource("1_1g2g1")]
 script = ExtResource("2_nh8gm")
 _modpackLocalizedItemScene = ExtResource("6_yrsig")
+_shareModpackScene = ExtResource("7_share")
 _modpackIconTextureRect = NodePath("PanelContainer/VBoxContainer/ScrollContainer/VBoxContainer/FoldableContainer/HBoxContainer/TextureRect")
 _modifyIconButton = NodePath("PanelContainer/VBoxContainer/ScrollContainer/VBoxContainer/FoldableContainer/HBoxContainer/VBoxContainer/Button")
 _resetIconButton = NodePath("PanelContainer/VBoxContainer/ScrollContainer/VBoxContainer/FoldableContainer/HBoxContainer/VBoxContainer/Button2")
@@ -195,6 +197,7 @@ layout_mode = 2
 placeholder_text = "Vintagestory.dll"
 
 [node name="HBoxContainer3" parent="PanelContainer/VBoxContainer" parent_id_path=PackedInt32Array(1085092068) index="4" unique_id=522919472]
+theme_override_constants/separation = 16
 size_flags_horizontal = 1
 size_flags_vertical = 8
 
@@ -207,5 +210,11 @@ size_flags_horizontal = 4
 theme_type_variation = &"ProminentButton"
 text = "打开目录"
 
-[node name="Button2" parent="PanelContainer/VBoxContainer/HBoxContainer3" index="2" unique_id=1754640447]
+[node name="ShareButton" type="Button" parent="PanelContainer/VBoxContainer/HBoxContainer3" index="2"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"ProminentButton"
+text = "分享"
+
+[node name="Button2" parent="PanelContainer/VBoxContainer/HBoxContainer3" index="3" unique_id=1754640447]
 text = "移除"

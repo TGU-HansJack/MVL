@@ -505,7 +505,9 @@ public partial class Main : NativeWindowUtility {
 				continue;
 			}
 
-			var modpack = ModpackConfigs.GetValueOrDefault(path, await ModpackConfig.Load(path));
+			if (!ModpackConfigs.TryGetValue(path, out var modpack)) {
+				modpack = await ModpackConfig.Load(path);
+			}
 			ModpackConfigs[path] = modpack;
 			modpack.Path = path;
 			if (string.IsNullOrEmpty(modpack.ModpackName.Value)) {

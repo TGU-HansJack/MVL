@@ -16,21 +16,20 @@ using MVL.Utils.Help;
 
 namespace MVL.Utils.Config;
 
-public class ModpackConfig {
+public class ModpackConfig : ModpackManifest {
 	private readonly record struct ModCacheEntry(ModInfo ModInfo, DateTime LastWriteTimeUtc);
 
 	private string _configPath = string.Empty;
 	private readonly ConcurrentDictionary<string, ModCacheEntry> _modInfoCache = new(StringComparer.OrdinalIgnoreCase);
 	private Texture2D _modpackIcon = DefaultIcon;
 
-	public LocalizedString ModpackName { get; set; } = LocalizedString.Empty;
-	public GameVersion? GameVersion { get; set; }
-	public SVersion ModpackVersion { get; set; } = SVersion.ZeroVersion;
-	public List<string> ModpackAuthors { get; set; } = [];
-	public List<string> ModpackTags { get; set; } = [];
-	public LocalizedString ModpackSummary { get; set; } = LocalizedString.Empty;
-	public LocalizedString ModpackDescription { get; set; } = LocalizedString.Empty;
-	public string ModpackWebsite { get; set; } = string.Empty;
+	private readonly SemaphoreSlim _scanLock = new(1);
+
+	public ModpackConfig() { }
+
+	public ModpackConfig(ModpackManifest manifest) : base(manifest) {
+		ModList = manifest.ModList.Select(mod => mod with { Pending = true }).ToArray();
+	}
 	public string Command { get; set; } = string.Empty;
 	public string MainAssembly { get; set; } = string.Empty;
 	public string? ReleasePath { get; set; }
@@ -55,7 +54,7 @@ public class ModpackConfig {
 	}
 
 	[JsonIgnore]
-	public ConcurrentDictionary<string, ModInfo> Mods { get; } = [];
+	public ConcurrentDictionary<string, ModInfo> Mods { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
 
 	[JsonIgnore]
 	public ReleaseInfo? ReleaseInfo {
@@ -88,7 +87,17 @@ public class ModpackConfig {
 
 	public static Texture2D DefaultIcon { get; } = GD.Load<Texture2D>("res://Assets/Icon/VS/gameicon.png");
 
-	public async Task UpdateModsAsync() {
+	public async Task UpdateModsAsync(bool notify = true) {
+		await _scanLock.WaitAsync();
+		try {
+			await ScanModsAsync();
+		} finally {
+			_scanLock.Release();
+		}
+		if (notify) ModsUpdated?.Invoke(this);
+	}
+
+	private async Task ScanModsAsync() {
 		Log.Trace($"开始更新整合包\"{ModpackName.Value}\"({Path})模组信息");
 
 		if (string.IsNullOrEmpty(Path) || !Directory.Exists(Path)) {
@@ -117,12 +126,7 @@ public class ModpackConfig {
 			}
 		}
 
-		foreach (var kvp in Mods) {
-			if (!existingPaths.Contains(kvp.Value.ModPath)) {
-				Mods.TryRemove(kvp.Key, out _);
-			}
-		}
-
+		var installed = new ConcurrentDictionary<string, ModInfo>(StringComparer.OrdinalIgnoreCase);
 		await Parallel.ForEachAsync(fileSystemInfos,
 			async (fsi, _) => {
 				var modInfo = await TryLoadMod(fsi);
@@ -132,22 +136,15 @@ public class ModpackConfig {
 
 				modInfo.ModpackConfig = this;
 
-				SVersion? newVersion;
-				try {
-					newVersion = SVersion.Parse(modInfo.Version);
-				} catch (Exception ex) {
-					Log.Error($"解析{modInfo.ModPath}版本失败: {modInfo.Version}", ex);
-					return;
-				}
-
-				Mods.AddOrUpdate(
+				if (string.IsNullOrWhiteSpace(modInfo.ModId) || string.IsNullOrWhiteSpace(modInfo.Version)) return;
+				installed.AddOrUpdate(
 					modInfo.ModId,
 					modInfo,
 					(_, existingModInfo) => {
 						try {
 							var oldVersion = SVersion.Parse(existingModInfo.Version);
 
-							return newVersion > oldVersion ? modInfo : existingModInfo;
+							return SVersion.Parse(modInfo.Version) > oldVersion ? modInfo : existingModInfo;
 						} catch (Exception ex) {
 							Log.Error($"比较{modInfo.ModPath}和{existingModInfo.ModPath}版本时出错", ex);
 							return existingModInfo;
@@ -155,8 +152,20 @@ public class ModpackConfig {
 					}
 				);
 			});
+		Mods = installed;
+		var entries = installed.Values.ToDictionary(mod => mod.ModId,
+			mod => new ModpackMod(mod.ModId, mod.Version, mod.Name), StringComparer.OrdinalIgnoreCase);
+		foreach (var mod in ModList.Where(mod => mod.Pending)) {
+			if (!entries.TryGetValue(mod.ModId, out var found) || found.Version != mod.Version) {
+				entries[mod.ModId] = mod;
+			}
+		}
+		var snapshot = entries.Values.OrderBy(mod => mod.ModId, StringComparer.OrdinalIgnoreCase).ToArray();
+		if (!snapshot.SequenceEqual(ModList)) {
+			ModList = snapshot;
+			Save();
+		}
 		Log.Info($"更新整合包\"{ModpackName.Value}\"({Path})模组信息完成，共 {Mods.Count} 个模组");
-		ModsUpdated?.Invoke(this);
 	}
 
 	public async Task SetModpackIconAsync(string? iconPath, bool emit = true) {
@@ -208,7 +217,9 @@ public class ModpackConfig {
 	private async Task<ModInfo?> TryLoadMod(FileSystemInfo fsi) {
 		var entryPath = fsi.FullName;
 		try {
-			var lastWriteTime = fsi.LastWriteTimeUtc;
+			var lastWriteTime = fsi is DirectoryInfo
+				? File.GetLastWriteTimeUtc(System.IO.Path.Combine(entryPath, ModInfo.JsonName))
+				: fsi.LastWriteTimeUtc;
 
 			if (_modInfoCache.TryGetValue(entryPath, out var cachedEntry) &&
 				cachedEntry.LastWriteTimeUtc == lastWriteTime) {

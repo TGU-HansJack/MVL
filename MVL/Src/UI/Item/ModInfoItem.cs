@@ -10,6 +10,7 @@ using Flurl.Http;
 using Godot;
 using MVL.UI.Window;
 using MVL.Utils;
+using MVL.Utils.Config;
 using MVL.Utils.Game;
 using MVL.Utils.Help;
 
@@ -49,6 +50,8 @@ public partial class ModInfoItem : PanelContainer {
 	public ModpackModManagementWindow? Window { get; set; }
 
 	public ModInfo? Mod { get; set; }
+	public ModpackMod? ShareEntry { get; set; }
+	public bool SelectedForShare => GetNode<CheckBox>("%ShareCheckBox").ButtonPressed;
 
 	public ApiModInfo? ApiModInfo { get; set; }
 
@@ -81,13 +84,21 @@ public partial class ModInfoItem : PanelContainer {
 		_progressBar.NotNull();
 
 		UpdateUI();
+		if (ShareEntry != null) {
+			var checkbox = GetNode<CheckBox>("%ShareCheckBox");
+			checkbox.AccessibilityName = _modName.Text;
+			checkbox.Show();
+			if (Mod == null) {
+				GetNode<GridContainer>("%GridContainer").Hide();
+			}
+		}
 
 		_webButton!.Pressed += WebButtonOnPressed;
 		_updateButton.Pressed += UpdateButtonOnPressed;
 		_releaseButton!.Pressed += ReleaseButtonOnPressed;
 		_deleteButton!.Pressed += DeleteButtonOnPressed;
 
-		Task.Run(DependencyDetection);
+		if (Mod != null) Task.Run(DependencyDetection);
 	}
 
 	private async void ReleaseButtonOnPressed() {
@@ -153,10 +164,10 @@ public partial class ModInfoItem : PanelContainer {
 		var mod = await ModInfo.FromZip(path);
 		if (mod != null) {
 			mod.ModpackConfig = Mod!.ModpackConfig;
-			mod.ModpackConfig!.Mods[mod.ModId] = mod;
 			Mod = mod;
 		}
 
+		await Mod!.ModpackConfig!.UpdateModsAsync(notify: false);
 		if (!IsInstanceValid(this)) {
 			return;
 		}
@@ -190,24 +201,25 @@ public partial class ModInfoItem : PanelContainer {
 	}
 
 	public void UpdateUI() {
-		_modName!.Text = Mod?.Name;
-		_modName.TooltipText = Mod!.ModPath;
-		_version!.Text = $"{Mod?.ModId}-{Mod?.Version}";
-		_description!.Text = Mod?.Description;
+		_modName!.Text = Mod?.Name ?? ShareEntry?.Name ?? ShareEntry?.ModId;
+		_modName.TooltipText = Mod?.ModPath ?? string.Empty;
+		_version!.Text = $"{ShareEntry?.ModId ?? Mod?.ModId}-{ShareEntry?.Version ?? Mod?.Version}";
+		_description!.Text = ShareEntry is { Pending: true } ? Tr("待补齐") : Mod?.Description;
 		_webButton!.Disabled = true;
 		_releaseButton!.Disabled = true;
 		_updateButton!.Disabled = true;
 		_updateButton!.Modulate = Colors.White;
 
-		Task.Run(async () => {
-			var texture = await Mod!.GetIconAsync();
+		if (Mod != null) LoadIcon(Mod);
+	}
 
-			if (texture is null) {
-				return;
-			}
-
-			_icon!.SetDeferred(TextureRect.PropertyName.Texture, texture);
-		});
+	private async void LoadIcon(ModInfo mod) {
+		try {
+			var texture = await Task.Run(mod.GetIconAsync);
+			if (texture != null && GodotObject.IsInstanceValid(this) && Mod == mod) _icon!.Texture = texture;
+		} catch (Exception ex) {
+			Log.Error($"加载模组图标失败: {mod.ModPath}", ex);
+		}
 	}
 
 	public async Task UpdateApiModInfo() {
@@ -218,9 +230,10 @@ public partial class ModInfoItem : PanelContainer {
 		CanUpdate = false;
 		HasAutoUpdate?.Invoke(this);
 
-		if (!string.IsNullOrWhiteSpace(Mod!.ModId)) {
+		var modId = Mod?.ModId ?? ShareEntry?.ModId;
+		if (!string.IsNullOrWhiteSpace(modId)) {
 			try {
-				var url = $"https://mods.vintagestory.at/api/mod/{Mod.ModId}";
+				var url = $"https://mods.vintagestory.at/api/mod/{Uri.EscapeDataString(modId)}";
 				await using var result = await url.GetStreamAsync();
 				var status = await JsonSerializer.DeserializeAsync(result, SourceGenerationContext.Default.ApiStatusModInfo);
 				if (status.StatusCode is not "200" || !IsInstanceValid(this)) {
@@ -229,17 +242,18 @@ public partial class ModInfoItem : PanelContainer {
 
 				ApiModInfo = status.Mod!;
 
-				await Task.Run(UpdateApiModRelease);
+				if (Mod != null) await Task.Run(UpdateApiModRelease);
 
 				if (_modName == null || !IsInstanceValid(this)) {
 					return;
 				}
 
 				_webButton!.Disabled = false;
-				_releaseButton!.Disabled = false;
-				_modName.Text = Mod!.Name.Equals(ApiModInfo.Value.Name, StringComparison.Ordinal)
-					? Mod.Name
-					: $"{ApiModInfo.Value.Name} ({Mod.Name})";
+				_releaseButton!.Disabled = Mod == null;
+				var localName = Mod?.Name ?? ShareEntry?.Name ?? ShareEntry?.ModId ?? string.Empty;
+				_modName.Text = localName.Equals(ApiModInfo.Value.Name, StringComparison.Ordinal)
+					? localName
+					: $"{ApiModInfo.Value.Name} ({localName})";
 			} catch (Exception e) {
 				Log.Error(e);
 			}

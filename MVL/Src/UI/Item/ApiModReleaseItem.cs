@@ -177,25 +177,23 @@ public partial class ApiModReleaseItem : PanelContainer {
 	}
 
 	public async Task Download() {
-		foreach (var child in GetParent().GetChildren()) {
-			var item = child as ApiModReleaseItem;
-			item?.Disable();
-		}
-
 		_downloadButton!.Disabled = true;
 		_checkBox!.Disabled = _downloadButton!.Disabled;
 		_downloadButton.Hide();
 		_checkBox!.Hide();
+		_progressBar!.Value = 0;
+		_progressLabel!.Text = "连接中";
 		_progressLabel!.Show();
-		_progressBar!.Show();
+		_progressBar.Show();
 
 		var path = Path.Combine(ModpackConfig!.Path!, "Mods", ApiModRelease!.Value.FileName);
 		try {
 			await ApiModRelease.Value.DownloadMainFileAsync(path,
 				progress => {
 					Dispatcher.SynchronizationContext.Post(_ => {
-							_progressBar.SetValue(progress.Percentage);
-							_progressLabel.SetText($"{progress.Percentage:F1}%");
+							if (!IsInstanceValid(this)) return;
+							_progressBar!.SetValue(progress.Percentage);
+							_progressLabel!.SetText($"{progress.Percentage:F1}%");
 						},
 						null);
 				},
@@ -221,12 +219,12 @@ public partial class ApiModReleaseItem : PanelContainer {
 		var mod = await ModInfo.FromZip(path);
 		if (mod != null) {
 			mod.ModpackConfig = ModpackConfig;
-			mod.ModpackConfig!.Mods[mod.ModId] = mod;
 			ModInfo = mod;
 
 			Window!.UpdateApiModInfo(this);
 		}
 
+		await ModpackConfig.UpdateModsAsync(notify: false);
 		if (IsInstanceValid(this)) {
 			_progressBar.Hide();
 		}
